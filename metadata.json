@@ -1,0 +1,6 @@
+{
+  "name": "Simulador de Fluxo WhatsApp",
+  "description": "Simulador e construtor interativo de fluxos de atendimento via WhatsApp com transição para atendente humano.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
