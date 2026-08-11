@@ -4,18 +4,40 @@ import { FlowBuilderTab } from './components/FlowBuilder/FlowBuilderTab';
 import { AgentPanelTab } from './components/AgentPanel/AgentPanelTab';
 import { WhatsAppSimulator } from './components/WhatsAppSimulator/WhatsAppSimulator';
 import { ImportExportModal } from './components/ImportExportModal';
+import { FlowManagerModal } from './components/FlowManagerModal';
 import { initialFlowData } from './data/defaultFlow';
+import {
+  SavedFlow,
+  loadSavedFlowsFromStorage,
+  saveFlowsToStorage,
+  loadActiveFlowIdFromStorage,
+  saveActiveFlowIdToStorage,
+  createDefaultBlankFlowData,
+} from './utils/flowStorage';
 import { FlowData, ChatMessage, AttendantState, FlowNode } from './types';
 import { getCurrentTimeString } from './utils/formatters';
 import { Settings, UserCheck, Bot, Layout, MessageSquareCode, Smartphone } from 'lucide-react';
 
 export default function App() {
-  const [flowData, setFlowData] = useState<FlowData>(initialFlowData);
-  const [currentNodeId, setCurrentNodeId] = useState<string>(initialFlowData.startNodeId);
+  // Load saved flows & active flow ID from local storage
+  const [savedFlows, setSavedFlows] = useState<SavedFlow[]>(() => loadSavedFlowsFromStorage());
+  const [activeFlowId, setActiveFlowId] = useState<string>(() => loadActiveFlowIdFromStorage(loadSavedFlowsFromStorage()));
+
+  // Active Flow Object
+  const currentActiveFlow = savedFlows.find((f) => f.id === activeFlowId) || savedFlows[0] || {
+    id: 'flow_default',
+    name: 'Atendimento Senac CE',
+    updatedAt: new Date().toISOString(),
+    data: initialFlowData,
+  };
+
+  const [flowData, setFlowData] = useState<FlowData>(currentActiveFlow.data);
+  const [currentNodeId, setCurrentNodeId] = useState<string>(currentActiveFlow.data.startNodeId || 'node_root');
   const [activeTab, setActiveTab] = useState<'flow_builder' | 'human_agent'>('flow_builder');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isBotTyping, setIsBotTyping] = useState<boolean>(false);
   const [isSimulatorVisible, setIsSimulatorVisible] = useState<boolean>(false);
+  const [isFlowManagerOpen, setIsFlowManagerOpen] = useState<boolean>(false);
 
   const [attendantState, setAttendantState] = useState<AttendantState>({
     isHumanActive: false,
@@ -67,6 +89,84 @@ export default function App() {
   useEffect(() => {
     initChat(flowData);
   }, []);
+
+  // Sync active flow data whenever user changes or loads a different saved flow
+  const handleSelectFlow = (flowId: string) => {
+    const targetFlow = savedFlows.find((f) => f.id === flowId);
+    if (!targetFlow) return;
+
+    setActiveFlowId(flowId);
+    saveActiveFlowIdToStorage(flowId);
+    setFlowData(targetFlow.data);
+    initChat(targetFlow.data);
+  };
+
+  // Create a brand new flow from scratch
+  const handleCreateNewFlow = (name: string, templateType: 'blank' | 'senac_template') => {
+    const newId = 'flow_' + Date.now();
+    const newData = templateType === 'blank' ? createDefaultBlankFlowData(name) : initialFlowData;
+
+    const newFlow: SavedFlow = {
+      id: newId,
+      name,
+      updatedAt: new Date().toISOString(),
+      data: newData,
+    };
+
+    const updatedFlows = [newFlow, ...savedFlows];
+    setSavedFlows(updatedFlows);
+    saveFlowsToStorage(updatedFlows);
+
+    setActiveFlowId(newId);
+    saveActiveFlowIdToStorage(newId);
+    setFlowData(newData);
+    initChat(newData);
+  };
+
+  // Rename an existing saved flow
+  const handleRenameFlow = (flowId: string, newName: string) => {
+    const updatedFlows = savedFlows.map((f) =>
+      f.id === flowId ? { ...f, name: newName, updatedAt: new Date().toISOString() } : f
+    );
+    setSavedFlows(updatedFlows);
+    saveFlowsToStorage(updatedFlows);
+  };
+
+  // Duplicate a saved flow
+  const handleDuplicateFlow = (flowId: string) => {
+    const target = savedFlows.find((f) => f.id === flowId);
+    if (!target) return;
+
+    const newId = 'flow_copy_' + Date.now();
+    const duplicated: SavedFlow = {
+      id: newId,
+      name: `${target.name} (Cópia)`,
+      updatedAt: new Date().toISOString(),
+      data: JSON.parse(JSON.stringify(target.data)),
+    };
+
+    const updatedFlows = [duplicated, ...savedFlows];
+    setSavedFlows(updatedFlows);
+    saveFlowsToStorage(updatedFlows);
+  };
+
+  // Delete a saved flow
+  const handleDeleteFlow = (flowId: string) => {
+    if (savedFlows.length <= 1) return;
+
+    const updatedFlows = savedFlows.filter((f) => f.id !== flowId);
+    setSavedFlows(updatedFlows);
+    saveFlowsToStorage(updatedFlows);
+
+    // If active flow was deleted, switch to first remaining
+    if (activeFlowId === flowId) {
+      const nextActive = updatedFlows[0];
+      setActiveFlowId(nextActive.id);
+      saveActiveFlowIdToStorage(nextActive.id);
+      setFlowData(nextActive.data);
+      initChat(nextActive.data);
+    }
+  };
 
   // Current active node object
   const currentNode = flowData.nodes.find((n) => n.id === currentNodeId) || getRootNode(flowData);
@@ -339,20 +439,29 @@ export default function App() {
   // Reset Default Flow
   const handleResetDefaultFlow = () => {
     if (window.confirm('Deseja restaurar o fluxo de atendimento padrão?')) {
-      setFlowData(initialFlowData);
+      handleUpdateFlowData(initialFlowData);
       initChat(initialFlowData);
     }
   };
 
   // Import JSON Flow
   const handleImportFlow = (newFlow: FlowData) => {
-    setFlowData(newFlow);
+    handleUpdateFlowData(newFlow);
     initChat(newFlow);
   };
 
-  // Update Flow Data & Live Synchronize Simulator Chat
+  // Update Flow Data & Live Synchronize Simulator Chat & Persist to Storage
   const handleUpdateFlowData = (newData: FlowData) => {
     setFlowData(newData);
+
+    // Auto-save changes to the active flow in storage
+    const updatedFlows = savedFlows.map((f) =>
+      f.id === activeFlowId
+        ? { ...f, data: newData, updatedAt: new Date().toISOString() }
+        : f
+    );
+    setSavedFlows(updatedFlows);
+    saveFlowsToStorage(updatedFlows);
 
     const rootNode = getRootNode(newData);
     if (!rootNode) return;
@@ -386,6 +495,9 @@ export default function App() {
       {/* Top Header */}
       <Header
         attendantState={attendantState}
+        activeFlowName={currentActiveFlow.name}
+        savedFlowsCount={savedFlows.length}
+        onOpenFlowManager={() => setIsFlowManagerOpen(true)}
         onResetChat={handleResetChat}
         onResetDefaultFlow={handleResetDefaultFlow}
         onOpenExportModal={() => setModalState({ isOpen: true, mode: 'export' })}
@@ -493,6 +605,19 @@ export default function App() {
         flowData={flowData}
         onClose={() => setModalState({ ...modalState, isOpen: false })}
         onImportFlow={handleImportFlow}
+      />
+
+      {/* Flow Manager Modal */}
+      <FlowManagerModal
+        isOpen={isFlowManagerOpen}
+        onClose={() => setIsFlowManagerOpen(false)}
+        savedFlows={savedFlows}
+        activeFlowId={activeFlowId}
+        onSelectFlow={handleSelectFlow}
+        onCreateNewFlow={handleCreateNewFlow}
+        onRenameFlow={handleRenameFlow}
+        onDuplicateFlow={handleDuplicateFlow}
+        onDeleteFlow={handleDeleteFlow}
       />
 
     </div>
