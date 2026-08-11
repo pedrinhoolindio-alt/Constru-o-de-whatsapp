@@ -1,5 +1,9 @@
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+// html2canvas-pro é um fork mantido do html2canvas com suporte nativo a oklch/oklab/lab/lch/color(),
+// que o Tailwind v4 usa em todas as cores por padrão. O html2canvas original não suporta esses
+// formatos (issue aberta e sem previsão de correção no projeto oficial), então trocamos a lib
+// em vez de continuar tentando sanitizar cores manualmente.
+import html2canvas from 'html2canvas-pro';
 import { FlowData, FlowNode, Trigger } from '../types';
 
 /**
@@ -351,160 +355,57 @@ export async function generateVisualCanvasPdf(elementId: string, flowName: strin
     throw new Error('Elemento do canvas não foi encontrado para captura.');
   }
 
-  // Resolve QUALQUER cor CSS (oklab, oklch, color-mix, etc. — usadas pelo Tailwind v4) para
-  // rgba real, usando o canvas 2D como parser de cor confiável do próprio navegador.
-  // Isso substitui o truque antigo baseado em getComputedStyle, que o Chrome pode devolver
-  // ainda em oklab/oklch e por isso não resolvia nada.
-  const resolverCanvas = document.createElement('canvas');
-  resolverCanvas.width = 1;
-  resolverCanvas.height = 1;
-  const resolverCtx = resolverCanvas.getContext('2d')!;
-  const colorCache = new Map<string, string>();
-
-  const resolveColorToRgba = (colorStr: string): string => {
-    if (!colorStr || colorStr === 'transparent' || colorStr === 'none') return colorStr;
-    if (colorCache.has(colorStr)) return colorCache.get(colorStr)!;
-    let result = colorStr;
-    try {
-      resolverCtx.clearRect(0, 0, 1, 1);
-      resolverCtx.fillStyle = '#000';
-      resolverCtx.fillStyle = colorStr;
-      resolverCtx.fillRect(0, 0, 1, 1);
-      const [r, g, b, a] = resolverCtx.getImageData(0, 0, 1, 1).data;
-      result = `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
-    } catch {
-      result = 'rgb(100, 116, 139)'; // fallback neutro se a cor não puder ser parseada
-    }
-    colorCache.set(colorStr, result);
-    return result;
-  };
-
-  const MODERN_COLOR_FN_REGEX = /(oklch|oklab|lab|lch|color-mix)\((?:[^()]|\([^()]*\))*\)/gi;
-  const hasModernColor = (value: string) => /(oklch|oklab|lab|lch|color-mix)/i.test(value);
-
-  // Para strings compostas (gradientes, sombras múltiplas) que podem conter várias
-  // funções de cor moderna misturadas com outros valores — resolve cada ocorrência
-  // individualmente e recompõe a string original.
-  const resolveColorFunctionsInString = (value: string): string =>
-    value.replace(MODERN_COLOR_FN_REGEX, (match) => resolveColorToRgba(match));
-
-  // Propriedades de cor "simples" (um único valor de cor)
-  const SOLID_COLOR_PROPS = [
-    'color',
-    'backgroundColor',
-    'borderTopColor',
-    'borderRightColor',
-    'borderBottomColor',
-    'borderLeftColor',
-    'outlineColor',
-    'textDecorationColor',
-    'caretColor',
-  ] as const;
-
-  // Propriedades "compostas" que podem embutir cores dentro de gradientes/sombras
-  // (ex.: bg-gradient-to-r do Tailwind v4 gera backgroundImage com oklch nos stops)
-  const COMPOSITE_COLOR_PROPS = ['backgroundImage', 'boxShadow', 'textShadow'] as const;
-
-  // IMPORTANTE: o html2canvas clona e processa o DOCUMENTO INTEIRO (não só o elemento alvo)
-  // para montar corretamente contexto de stacking/overflow, e só depois recorta a imagem
-  // final na área do elemento. Por isso precisamos sanitizar TODOS os elementos da página,
-  // não apenas os descendentes de `element` — senão qualquer cor oklch/oklab fora do canvas
-  // (ex.: o fundo da página, o header, o modal por trás) também derruba o parser.
-  const allOriginalEls = Array.from(document.querySelectorAll<HTMLElement>('*'));
-  const resolvedStyles = new Map<string, Record<string, string>>();
-
-  allOriginalEls.forEach((el, idx) => {
-    const markerId = `h2c-fix-${idx}`;
-    el.setAttribute('data-h2c-fix', markerId);
-    const computed = window.getComputedStyle(el);
-    const entry: Record<string, string> = {};
-
-    SOLID_COLOR_PROPS.forEach((prop) => {
-      const val = computed[prop as any];
-      if (val && hasModernColor(val)) {
-        entry[prop] = resolveColorToRgba(val);
-      }
-    });
-
-    COMPOSITE_COLOR_PROPS.forEach((prop) => {
-      const val = computed[prop as any];
-      if (val && val !== 'none' && hasModernColor(val)) {
-        entry[prop] = resolveColorFunctionsInString(val);
-      }
-    });
-
-    if (Object.keys(entry).length > 0) {
-      resolvedStyles.set(markerId, entry);
-    }
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#0f172a', // dark slate background
   });
 
-  try {
-    // Use html2canvas to capture image with onclone handler aplicando as cores já resolvidas
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#0f172a', // dark slate background
-      onclone: (clonedDoc) => {
-        const clonedEls = Array.from(clonedDoc.querySelectorAll<HTMLElement>('[data-h2c-fix]'));
-        clonedEls.forEach((clonedEl) => {
-          const markerId = clonedEl.getAttribute('data-h2c-fix')!;
-          const fixes = resolvedStyles.get(markerId);
-          if (!fixes) return;
-          Object.entries(fixes).forEach(([prop, value]) => {
-            (clonedEl.style as any)[prop] = value;
-          });
-        });
-      },
-    });
+  const imgData = canvas.toDataURL('image/png');
 
-    const imgData = canvas.toDataURL('image/png');
+  // Landscape A4 PDF
+  const pdf = new jsPDF({
+    orientation: 'l',
+    unit: 'mm',
+    format: 'a4',
+  });
 
-    // Landscape A4 PDF
-    const pdf = new jsPDF({
-      orientation: 'l',
-      unit: 'mm',
-      format: 'a4',
-    });
+  const pageWidth = 297;
+  const pageHeight = 210;
+  const margin = 10;
 
-    const pageWidth = 297;
-    const pageHeight = 210;
-    const margin = 10;
+  // Header bar
+  pdf.setFillColor(15, 23, 42);
+  pdf.rect(0, 0, pageWidth, 16, 'F');
 
-    // Header bar
-    pdf.setFillColor(15, 23, 42);
-    pdf.rect(0, 0, pageWidth, 16, 'F');
+  pdf.setFont('Helvetica', 'bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(255, 255, 255);
+  pdf.text(`Mapa Visual do Fluxo: ${flowName}`, margin, 11);
 
-    pdf.setFont('Helvetica', 'bold');
-    pdf.setFontSize(11);
-    pdf.setTextColor(255, 255, 255);
-    pdf.text(`Mapa Visual do Fluxo: ${flowName}`, margin, 11);
+  pdf.setFont('Helvetica', 'normal');
+  pdf.setFontSize(8);
+  pdf.setTextColor(148, 163, 184);
+  pdf.text(`Exportado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, pageWidth - margin, 11, { align: 'right' });
 
-    pdf.setFont('Helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.setTextColor(148, 163, 184);
-    pdf.text(`Exportado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`, pageWidth - margin, 11, { align: 'right' });
+  // Compute scale
+  const imgWidth = pageWidth - margin * 2;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    // Compute scale
-    const imgWidth = pageWidth - margin * 2;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  let renderHeight = imgHeight;
+  let renderWidth = imgWidth;
 
-    let renderHeight = imgHeight;
-    let renderWidth = imgWidth;
-
-    // If image height exceeds page usable height
-    const maxUsableHeight = pageHeight - 22 - margin;
-    if (renderHeight > maxUsableHeight) {
-      renderHeight = maxUsableHeight;
-      renderWidth = (canvas.width * renderHeight) / canvas.height;
-    }
-
-    const xOffset = (pageWidth - renderWidth) / 2;
-    pdf.addImage(imgData, 'PNG', xOffset, 18, renderWidth, renderHeight);
-
-    const filename = `${flowName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-mapa-visual-${Date.now()}.pdf`;
-    pdf.save(filename);
-  } finally {
-    allOriginalEls.forEach((el) => el.removeAttribute('data-h2c-fix'));
+  // If image height exceeds page usable height
+  const maxUsableHeight = pageHeight - 22 - margin;
+  if (renderHeight > maxUsableHeight) {
+    renderHeight = maxUsableHeight;
+    renderWidth = (canvas.width * renderHeight) / canvas.height;
   }
+
+  const xOffset = (pageWidth - renderWidth) / 2;
+  pdf.addImage(imgData, 'PNG', xOffset, 18, renderWidth, renderHeight);
+
+  const filename = `${flowName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-mapa-visual-${Date.now()}.pdf`;
+  pdf.save(filename);
 }
