@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, UserCheck, RefreshCw, Download, Upload, RotateCcw, MessageSquareCode, Smartphone, FolderOpen, Plus, Save, Check } from 'lucide-react';
+import { Bot, UserCheck, RefreshCw, Download, Upload, RotateCcw, MessageSquareCode, Smartphone, FolderOpen, Plus, Save, Check, FileText } from 'lucide-react';
 import { AttendantState } from '../types';
 
 interface HeaderProps {
@@ -11,6 +11,7 @@ interface HeaderProps {
   onResetDefaultFlow: () => void;
   onOpenExportModal: () => void;
   onOpenImportModal: () => void;
+  onOpenPdfExportModal?: () => void;
   onToggleSimulator?: () => void;
   isSimulatorVisible?: boolean;
 }
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   onResetDefaultFlow,
   onOpenExportModal,
   onOpenImportModal,
+  onOpenPdfExportModal,
   onToggleSimulator,
   isSimulatorVisible,
 }) => {
@@ -123,6 +125,17 @@ export const Header: React.FC<HeaderProps> = ({
             <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
             <span>Modelo Padrão</span>
           </button>
+
+          {onOpenPdfExportModal && (
+            <button
+              onClick={onOpenPdfExportModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all font-bold shadow-xs active:scale-95 cursor-pointer border border-blue-400/40"
+              title="Baixar a documentação completa e organizada do fluxo em formato PDF"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-200" />
+              <span>📄 Baixar PDF</span>
+            </button>
+          )}
 
           <div className="h-4 w-px bg-slate-700 mx-0.5 hidden sm:block" />
 

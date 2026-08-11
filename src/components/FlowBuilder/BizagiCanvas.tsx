@@ -24,10 +24,18 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Smartphone,
+  Filter,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+  Hash,
 } from 'lucide-react';
 
 interface BizagiCanvasProps {
   flowData: FlowData;
+  visibleNodes?: FlowNode[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   currentNodeId: string;
   onUpdateFlowData: (newData: FlowData) => void;
   onSelectNodeInSimulator?: (nodeId: string) => void;
@@ -36,11 +44,15 @@ interface BizagiCanvasProps {
 
 export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
   flowData,
+  visibleNodes,
+  selectedBranchId = 'ALL',
+  onSelectBranchId,
   currentNodeId,
   onUpdateFlowData,
   onSelectNodeInSimulator,
   onOpenSimulator,
 }) => {
+  const nodesToDisplay = visibleNodes || flowData.nodes;
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 30, y: 30 });
   const [isPanning, setIsPanning] = useState<boolean>(false);
@@ -61,6 +73,40 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
 
   // Custom node positions state
   const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>({});
+
+  // Trigger reordering states
+  const [draggedTriggerInfo, setDraggedTriggerInfo] = useState<{ nodeId: string; index: number } | null>(null);
+  const [dragOverTriggerInfo, setDragOverTriggerInfo] = useState<{ nodeId: string; index: number } | null>(null);
+
+  const handleReorderTriggers = (nodeId: string, fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const updatedNodes = flowData.nodes.map((n) => {
+      if (n.id !== nodeId) return n;
+      if (toIndex >= n.triggers.length) return n;
+      const newTriggers = [...n.triggers];
+      const [moved] = newTriggers.splice(fromIndex, 1);
+      newTriggers.splice(toIndex, 0, moved);
+      return { ...n, triggers: newTriggers };
+    });
+    onUpdateFlowData({ ...flowData, nodes: updatedNodes });
+  };
+
+  const handleMoveTrigger = (nodeId: string, triggerIndex: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? triggerIndex - 1 : triggerIndex + 1;
+    handleReorderTriggers(nodeId, triggerIndex, targetIndex);
+  };
+
+  const handleRenumberTriggers = (nodeId: string) => {
+    const updatedNodes = flowData.nodes.map((n) => {
+      if (n.id !== nodeId) return n;
+      const renumbered = n.triggers.map((trig, idx) => ({
+        ...trig,
+        key: String(idx + 1),
+      }));
+      return { ...n, triggers: renumbered };
+    });
+    onUpdateFlowData({ ...flowData, nodes: updatedNodes });
+  };
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -363,14 +409,14 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
   const renderSvgConnections = () => {
     const connections: { id: string; x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
 
-    flowData.nodes.forEach((sourceNode, srcIdx) => {
+    nodesToDisplay.forEach((sourceNode, srcIdx) => {
       const sourcePos = customPositions[sourceNode.id] || getNodePosition(sourceNode, srcIdx);
 
       sourceNode.triggers.forEach((trig, trigIdx) => {
         if ((trig.action === 'node' || trig.action === 'ai_agent') && trig.targetNodeId) {
-          const targetNode = flowData.nodes.find((n) => n.id === trig.targetNodeId);
+          const targetNode = nodesToDisplay.find((n) => n.id === trig.targetNodeId);
           if (targetNode) {
-            const targetIdx = flowData.nodes.findIndex((n) => n.id === targetNode.id);
+            const targetIdx = nodesToDisplay.findIndex((n) => n.id === targetNode.id);
             const targetPos = customPositions[targetNode.id] || getNodePosition(targetNode, targetIdx);
 
             // Anchor output coordinates (right side of trigger item)
@@ -446,6 +492,7 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
 
   return (
     <div
+      id="bizagi-canvas-viewport"
       className={`bg-slate-900 border border-slate-800 shadow-xl overflow-hidden flex flex-col transition-all relative ${
         isFullscreen
           ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0 p-0'
@@ -593,7 +640,7 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
             {renderSvgConnections()}
 
             {/* BIZAGI PROCESS CARDS (NODES) */}
-            {flowData.nodes.map((node, index) => {
+            {nodesToDisplay.map((node, index) => {
               const pos = customPositions[node.id] || getNodePosition(node, index);
               const isSelected = node.id === selectedNodeId;
               const isActiveInSim = node.id === currentNodeId;
@@ -661,23 +708,155 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
                   {/* BIZAGI CARD DECISION BRANCHES (Triggers) */}
                   <div className="p-2 space-y-1.5 bg-slate-900/90 rounded-b-2xl">
                     <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1 pt-1">
-                      <span>Saídas / Decisões:</span>
-                      <span>{node.triggers.length} Opções</span>
+                      <div className="flex items-center gap-1.5">
+                        <span>Saídas / Decisões:</span>
+                        <span className="text-slate-500">({node.triggers.length})</span>
+                      </div>
+                      {node.triggers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenumberTriggers(node.id);
+                          }}
+                          className="text-[9px] bg-slate-800 hover:bg-slate-700 text-blue-300 px-1.5 py-0.5 rounded border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Renumerar teclas automaticamente em sequência (1, 2, 3...)"
+                        >
+                          <Hash className="w-2.5 h-2.5 text-blue-400" />
+                          <span>Auto-1..N</span>
+                        </button>
+                      )}
                     </div>
 
-                    {node.triggers.map((trig) => {
+                    {node.triggers.map((trig, trigIdx) => {
                       const targetNode = flowData.nodes.find((n) => n.id === trig.targetNodeId);
+                      const isBranchFiltered = node.isRoot && selectedBranchId === trig.id;
+                      const isDraggingThis =
+                        draggedTriggerInfo?.nodeId === node.id && draggedTriggerInfo?.index === trigIdx;
+                      const isDragOverThis =
+                        dragOverTriggerInfo?.nodeId === node.id && dragOverTriggerInfo?.index === trigIdx;
 
                       return (
                         <div
                           key={trig.id}
-                          className="bg-slate-950 p-2 rounded-xl border border-slate-800/90 flex items-center justify-between gap-1.5 hover:border-slate-700 transition-colors"
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            e.dataTransfer.setData(
+                              'text/plain',
+                              JSON.stringify({ nodeId: node.id, index: trigIdx })
+                            );
+                            e.dataTransfer.effectAllowed = 'move';
+                            setDraggedTriggerInfo({ nodeId: node.id, index: trigIdx });
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = 'move';
+                            if (
+                              dragOverTriggerInfo?.nodeId !== node.id ||
+                              dragOverTriggerInfo?.index !== trigIdx
+                            ) {
+                              setDragOverTriggerInfo({ nodeId: node.id, index: trigIdx });
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (draggedTriggerInfo && draggedTriggerInfo.nodeId === node.id) {
+                              handleReorderTriggers(node.id, draggedTriggerInfo.index, trigIdx);
+                            } else {
+                              try {
+                                const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                if (data && data.nodeId === node.id) {
+                                  handleReorderTriggers(node.id, data.index, trigIdx);
+                                }
+                              } catch (err) {}
+                            }
+                            setDraggedTriggerInfo(null);
+                            setDragOverTriggerInfo(null);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedTriggerInfo(null);
+                            setDragOverTriggerInfo(null);
+                          }}
+                          className={`p-1.5 rounded-xl border flex items-center justify-between gap-1 transition-all select-none ${
+                            isDraggingThis
+                              ? 'opacity-40 border-dashed border-blue-400 bg-blue-950/40'
+                              : isDragOverThis
+                              ? 'bg-blue-900/60 border-blue-400 ring-2 ring-blue-400/60 shadow-md scale-[1.01]'
+                              : isBranchFiltered
+                              ? 'bg-blue-950/80 border-blue-500/80 ring-2 ring-blue-500/40 shadow-xs'
+                              : 'bg-slate-950 border-slate-800/90 hover:border-slate-700'
+                          }`}
                         >
-                          <div className="flex items-center gap-1.5 overflow-hidden">
+                          <div className="flex items-center gap-1 overflow-hidden">
+                            {/* Drag Handle Icon */}
+                            <div
+                              className="p-1 text-slate-500 hover:text-slate-200 cursor-grab active:cursor-grabbing shrink-0"
+                              title="Arraste para mudar a ordem desta opção"
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </div>
+
+                            {/* Up / Down Arrow Quick Reorder Buttons */}
+                            <div className="flex flex-col shrink-0">
+                              <button
+                                type="button"
+                                disabled={trigIdx === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveTrigger(node.id, trigIdx, 'up');
+                                }}
+                                className="p-0.5 text-slate-500 hover:text-blue-400 disabled:opacity-20 disabled:hover:text-slate-500 cursor-pointer"
+                                title="Mover para cima"
+                              >
+                                <ChevronUp className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={trigIdx === node.triggers.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveTrigger(node.id, trigIdx, 'down');
+                                }}
+                                className="p-0.5 text-slate-500 hover:text-blue-400 disabled:opacity-20 disabled:hover:text-slate-500 cursor-pointer"
+                                title="Mover para baixo"
+                              >
+                                <ChevronDown className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+
+                            {/* Filter Branch Button */}
+                            {node.isRoot && onSelectBranchId && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelectBranchId(selectedBranchId === trig.id ? 'ALL' : trig.id);
+                                }}
+                                className={`p-1 rounded-md transition-colors cursor-pointer shrink-0 ${
+                                  isBranchFiltered
+                                    ? 'bg-blue-600 text-white shadow-xs'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+                                }`}
+                                title={
+                                  isBranchFiltered
+                                    ? 'Limpar filtro de ramo'
+                                    : `Filtrar apenas o ramo de "${trig.label}"`
+                                }
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            )}
+
                             <span className="bg-slate-800 text-blue-300 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] border border-slate-700">
                               [{trig.key}]
                             </span>
-                            <span className="font-semibold text-slate-200 text-xs truncate max-w-[110px]" title={trig.label}>
+                            <span
+                              className="font-semibold text-slate-200 text-xs truncate max-w-[100px]"
+                              title={trig.label}
+                            >
                               {trig.label}
                             </span>
                           </div>
@@ -685,9 +864,9 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
                           {/* Action Outcome Indicator or 1-Click Submenu Expansion Button */}
                           <div className="flex items-center gap-1 shrink-0">
                             {trig.action === 'node' && targetNode ? (
-                              <span className="text-[10px] bg-blue-950 text-blue-300 font-bold px-2 py-0.5 rounded-md border border-blue-800 flex items-center gap-1">
+                              <span className="text-[10px] bg-blue-950 text-blue-300 font-bold px-1.5 py-0.5 rounded-md border border-blue-800 flex items-center gap-1">
                                 <ArrowRight className="w-2.5 h-2.5 text-blue-400" />
-                                <span className="max-w-[70px] truncate">{targetNode.title}</span>
+                                <span className="max-w-[65px] truncate">{targetNode.title}</span>
                               </span>
                             ) : (
                               /* 1-CLICK BIZAGI SUBMENU CREATION BUTTON */
@@ -696,7 +875,7 @@ export const BizagiCanvas: React.FC<BizagiCanvasProps> = ({
                                   e.stopPropagation();
                                   handleCreateConnectedSubmenu(node.id, trig.id, trig.label);
                                 }}
-                                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-extrabold px-2 py-1 rounded-lg transition-all flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer"
+                                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-extrabold px-1.5 py-0.5 rounded-lg transition-all flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer"
                                 title="Clique aqui para criar e conectar um novo Submenu instantaneamente"
                               >
                                 <Plus className="w-3 h-3" />

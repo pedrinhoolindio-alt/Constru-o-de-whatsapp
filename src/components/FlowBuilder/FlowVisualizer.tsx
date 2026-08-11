@@ -16,6 +16,9 @@ import {
 
 interface FlowVisualizerProps {
   flowData: FlowData;
+  visibleNodes?: FlowNode[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   currentNodeId: string;
   onEditNode: (node: FlowNode) => void;
   onCreateSubnode?: (label: string) => FlowNode;
@@ -23,14 +26,18 @@ interface FlowVisualizerProps {
 
 export const FlowVisualizer: React.FC<FlowVisualizerProps> = ({
   flowData,
+  visibleNodes,
+  selectedBranchId = 'ALL',
+  onSelectBranchId,
   currentNodeId,
   onEditNode,
   onCreateSubnode,
 }) => {
   const [viewMode, setViewMode] = useState<'bpmn' | 'grid'>('bpmn');
 
-  const rootNode = flowData.nodes.find((n) => n.isRoot) || flowData.nodes[0];
-  const subNodes = flowData.nodes.filter((n) => !n.isRoot);
+  const nodesToUse = visibleNodes || flowData.nodes;
+  const rootNode = nodesToUse.find((n) => n.isRoot) || nodesToUse[0];
+  const subNodes = nodesToUse.filter((n) => !n.isRoot);
 
   return (
     <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-4">

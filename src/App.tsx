@@ -5,6 +5,7 @@ import { AgentPanelTab } from './components/AgentPanel/AgentPanelTab';
 import { WhatsAppSimulator } from './components/WhatsAppSimulator/WhatsAppSimulator';
 import { ImportExportModal } from './components/ImportExportModal';
 import { FlowManagerModal } from './components/FlowManagerModal';
+import { PdfExportModal } from './components/PdfExportModal';
 import { initialFlowData } from './data/defaultFlow';
 import {
   SavedFlow,
@@ -38,6 +39,7 @@ export default function App() {
   const [isBotTyping, setIsBotTyping] = useState<boolean>(false);
   const [isSimulatorVisible, setIsSimulatorVisible] = useState<boolean>(false);
   const [isFlowManagerOpen, setIsFlowManagerOpen] = useState<boolean>(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
 
   const [attendantState, setAttendantState] = useState<AttendantState>({
     isHumanActive: false,
@@ -502,6 +504,7 @@ export default function App() {
         onResetDefaultFlow={handleResetDefaultFlow}
         onOpenExportModal={() => setModalState({ isOpen: true, mode: 'export' })}
         onOpenImportModal={() => setModalState({ isOpen: true, mode: 'import' })}
+        onOpenPdfExportModal={() => setIsPdfModalOpen(true)}
         onToggleSimulator={() => setIsSimulatorVisible(!isSimulatorVisible)}
         isSimulatorVisible={isSimulatorVisible}
       />
@@ -554,6 +557,7 @@ export default function App() {
               currentNodeId={currentNodeId}
               onUpdateFlowData={handleUpdateFlowData}
               onOpenSimulator={() => setIsSimulatorVisible(true)}
+              onOpenPdfExportModal={() => setIsPdfModalOpen(true)}
             />
           ) : (
             <AgentPanelTab
@@ -618,6 +622,14 @@ export default function App() {
         onRenameFlow={handleRenameFlow}
         onDuplicateFlow={handleDuplicateFlow}
         onDeleteFlow={handleDeleteFlow}
+      />
+
+      {/* PDF Export Modal */}
+      <PdfExportModal
+        isOpen={isPdfModalOpen}
+        flowData={flowData}
+        activeFlowName={currentActiveFlow.name}
+        onClose={() => setIsPdfModalOpen(false)}
       />
 
     </div>

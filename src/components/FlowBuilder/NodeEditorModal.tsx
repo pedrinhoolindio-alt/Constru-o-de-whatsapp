@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FlowNode, Trigger, TriggerAction } from '../../types';
 import { parseWhatsAppMarkdown } from '../../utils/formatters';
-import { X, Plus, Trash2, ArrowRight, CornerDownRight, Check, Sparkles, MessageSquare } from 'lucide-react';
+import { X, Plus, Trash2, ArrowRight, CornerDownRight, Check, Sparkles, MessageSquare, GripVertical, ChevronUp, ChevronDown, Hash } from 'lucide-react';
 
 interface NodeEditorModalProps {
   node: FlowNode | null;
@@ -27,6 +27,34 @@ export const NodeEditorModal: React.FC<NodeEditorModalProps> = ({
   const [isRoot, setIsRoot] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [createdSubnodeSuccess, setCreatedSubnodeSuccess] = useState<string | null>(null);
+
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleMoveTrigger = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= triggers.length) return;
+    const newTriggers = [...triggers];
+    const [moved] = newTriggers.splice(index, 1);
+    newTriggers.splice(targetIndex, 0, moved);
+    setTriggers(newTriggers);
+  };
+
+  const handleReorderTriggers = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || toIndex >= triggers.length) return;
+    const newTriggers = [...triggers];
+    const [moved] = newTriggers.splice(fromIndex, 1);
+    newTriggers.splice(toIndex, 0, moved);
+    setTriggers(newTriggers);
+  };
+
+  const handleRenumberTriggers = () => {
+    const renumbered = triggers.map((t, idx) => ({
+      ...t,
+      key: String(idx + 1),
+    }));
+    setTriggers(renumbered);
+  };
 
   useEffect(() => {
     if (node) {
@@ -233,16 +261,28 @@ export const NodeEditorModal: React.FC<NodeEditorModalProps> = ({
                   Opções e Gatilhos de Resposta ({triggers.length})
                 </h4>
                 <p className="text-xs text-slate-500">
-                  Defina o que o cliente deve digitar (ex: "1") e qual ação o sistema tomará.
+                  Arraste ou use as setas para reordenar a sequência das opções.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleAddTrigger}
-                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs rounded-lg transition-colors border border-emerald-200 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Adicionar Opção
-              </button>
+              <div className="flex items-center gap-2">
+                {triggers.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleRenumberTriggers}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-300 cursor-pointer"
+                    title="Renumerar dígitos dos gatilhos sequencialmente (1, 2, 3...)"
+                  >
+                    <Hash className="w-3.5 h-3.5 text-slate-600" /> Auto 1..N
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAddTrigger}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-xs rounded-lg transition-colors border border-emerald-200 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar Opção
+                </button>
+              </div>
             </div>
 
             {/* Submenu Guidance Hint */}
@@ -266,24 +306,90 @@ export const NodeEditorModal: React.FC<NodeEditorModalProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {triggers.map((trig, index) => (
-                  <div
-                    key={trig.id}
-                    className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 hover:border-slate-300 transition-all"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                        Opção #{index + 1}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTrigger(trig.id)}
-                        className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded transition-colors cursor-pointer"
-                        title="Remover opção"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                {triggers.map((trig, index) => {
+                  const isDragging = draggedIndex === index;
+                  const isDragOver = dragOverIndex === index;
+
+                  return (
+                    <div
+                      key={trig.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        e.dataTransfer.setData('text/plain', String(index));
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggedIndex(index);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (dragOverIndex !== index) {
+                          setDragOverIndex(index);
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (draggedIndex !== null && draggedIndex !== index) {
+                          handleReorderTriggers(draggedIndex, index);
+                        }
+                        setDraggedIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      className={`bg-slate-50 border rounded-xl p-3 space-y-3 transition-all select-none ${
+                        isDragging
+                          ? 'opacity-30 border-dashed border-emerald-500 bg-emerald-50'
+                          : isDragOver
+                          ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-400/50 scale-[1.01]'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="p-1 text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing"
+                            title="Arraste para mudar a ordem"
+                          >
+                            <GripVertical className="w-4 h-4" />
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => handleMoveTrigger(index, 'up')}
+                              className="p-1 text-slate-400 hover:text-emerald-700 disabled:opacity-20 cursor-pointer rounded hover:bg-slate-200"
+                              title="Mover para cima"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === triggers.length - 1}
+                              onClick={() => handleMoveTrigger(index, 'down')}
+                              className="p-1 text-slate-400 hover:text-emerald-700 disabled:opacity-20 cursor-pointer rounded hover:bg-slate-200"
+                              title="Mover para baixo"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            Opção #{index + 1}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTrigger(trig.id)}
+                          className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1 rounded transition-colors cursor-pointer"
+                          title="Remover opção"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
@@ -452,9 +558,9 @@ export const NodeEditorModal: React.FC<NodeEditorModalProps> = ({
                         </div>
                       </div>
                     </div>
-
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
           </div>

@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { FlowData, FlowNode } from '../../types';
-import { Plus, Edit3, Trash2, Search, Home, ArrowRight, Copy, MessageCircle } from 'lucide-react';
+import { Plus, Edit3, Trash2, Search, Home, ArrowRight, Copy, MessageCircle, Filter, X } from 'lucide-react';
 
 interface NodeListProps {
   flowData: FlowData;
+  visibleNodes?: FlowNode[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   currentNodeId: string;
   onEditNode: (node: FlowNode) => void;
   onAddNewNode: () => void;
@@ -14,6 +17,9 @@ interface NodeListProps {
 
 export const NodeList: React.FC<NodeListProps> = ({
   flowData,
+  visibleNodes,
+  selectedBranchId = 'ALL',
+  onSelectBranchId,
   currentNodeId,
   onEditNode,
   onAddNewNode,
@@ -23,7 +29,9 @@ export const NodeList: React.FC<NodeListProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredNodes = flowData.nodes.filter(
+  const nodesToUse = visibleNodes || flowData.nodes;
+
+  const filteredNodes = nodesToUse.filter(
     (n) =>
       n.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       n.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
