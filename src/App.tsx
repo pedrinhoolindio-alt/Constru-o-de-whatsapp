@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import { io } from 'socket.io-client';
 import { MessageCircle, QrCode, Send, Smartphone, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 
@@ -104,7 +105,7 @@ export default function App() {
     }
   }
 
-  async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const number = target.replace(/\D/g, '');
     const text = draft.trim();
